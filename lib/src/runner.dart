@@ -18,7 +18,6 @@ import 'commands/releases_command.dart';
 import 'commands/remove_command.dart';
 import 'commands/spawn_command.dart';
 import 'commands/use_command.dart';
-import 'utils/guards.dart';
 import 'utils/helpers.dart';
 import 'utils/logger.dart';
 import 'version.dart';
@@ -67,13 +66,10 @@ class FvmCommandRunner extends CommandRunner<int> {
       ConsoleController.isCli = true;
       final _argResults = parse(args);
 
-      // Check that can symlink
-      await Guards.canSymlink();
-
-      final exitCode = await runCommand(_argResults) ?? ExitCode.success.code;
-
       // Command might be null
       final cmd = _argResults.command?.name;
+
+      final exitCode = await runCommand(_argResults) ?? ExitCode.success.code;
 
       // Check if its running the latest version of FVM
       if (cmd == 'use' || cmd == 'install' || cmd == 'remove') {
@@ -86,12 +82,16 @@ class FvmCommandRunner extends CommandRunner<int> {
       FvmLogger.warning(e.message);
       FvmLogger.spacer();
       return ExitCode.usage.code;
-    } on FvmInternalError catch (e, stackTrace) {
+    } on FvmInternalError catch (e) {
       FvmLogger.spacer();
-      FvmLogger.warning(e.message);
+      FvmLogger.error(e.message);
       FvmLogger.spacer();
-      FvmLogger.error('$stackTrace');
+
+      FvmLogger.info(
+        'Please run command with  --verbose if you want more information',
+      );
       FvmLogger.spacer();
+
       return ExitCode.usage.code;
     } on UsageException catch (e) {
       FvmLogger.spacer();

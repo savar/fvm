@@ -233,7 +233,16 @@
       "login": "jmewes",
       "name": "Jan Mewes",
       "avatar_url": "https://avatars.githubusercontent.com/u/5235584?v=4",
-      "profile": "http://www.experimental-software.com",
+      "profile": "https://github.com/jmewes",
+      "contributions": [
+        "doc"
+      ]
+    },
+    {
+      "login": "allanlaal",
+      "name": "Allan Laal",
+      "avatar_url": "https://avatars.githubusercontent.com/u/740826?v=4",
+      "profile": "https://permanent.ee",
       "contributions": [
         "doc"
       ]
