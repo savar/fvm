@@ -41,6 +41,12 @@ Please do the following:
 
 ---
 
+### Command 'pub' not found
+
+If you get `Command 'pub' not found`, then make sure to append `export PATH="$PATH:/usr/lib/dart/bin"` to your `~/.bashrc` (gets reiniated each time you open a bash shell) or `~/.profile` (only read at login) file.
+
+---
+
 ### Environment variables order for Windows in PATH
 
 Flutter comes with Dart embedded. Because of that you can find some conflicts when running standalone Dart and Flutter together. Here is a suggestion of what we found to be the correct order of dependencies to avoid issues.
