@@ -5,107 +5,54 @@ import 'package:process_run/cmd_run.dart';
 
 import '../../constants.dart';
 import '../../exceptions.dart';
+import '../models/valid_version_model.dart';
 import '../utils/helpers.dart';
 import '../utils/logger.dart';
 import 'context.dart';
-import 'settings_service.dart';
+import 'releases_service/releases_client.dart';
 
 /// Tools  and helpers used for interacting with git
 class GitTools {
   GitTools._();
 
-  /// Check if Git is installed
-  static Future<void> canRun() async {
-    try {
-      await runExecutableArguments('git', ['--version'],
-          workingDirectory: kWorkingDirectory.path);
-    } on ProcessException {
-      throw Exception(
-        'You need Git Installed to run fvm. Go to https://git-scm.com/downloads',
-      );
-    }
-  }
-
-  /// Creates local git cache of Flutter repo.
-  static Future<void> createCache() async {
-    try {
-      if (await ctx.gitCacheDir.exists()) {
-        await ctx.gitCacheDir.delete();
-      }
-
-      final args = [
-        'clone',
-        '--mirror',
-        kFlutterRepo,
-        _cacheRepo,
-      ];
-
-      await runExecutableArguments(
-        'git',
-        args,
-        workingDirectory: kWorkingDirectory.path,
-        stdout: consoleController.stdoutSink,
-        stderr: consoleController.stderrSink,
-      );
-    } on ProcessException {
-      throw Exception(
-        'You need Git Installed to run fvm. Go to https://git-scm.com/downloads',
-      );
-    }
-  }
-
-  /// Updates local Flutter cache with 'remote update'.
-  static Future<void> updateCache() async {
-    try {
-      final args = ['remote', 'update'];
-      await runExecutableArguments(
-        'git',
-        args,
-        workingDirectory: _cacheRepo,
-        stdout: consoleController.stdoutSink,
-        stderr: consoleController.stderrSink,
-      );
-    } on ProcessException {
-      throw Exception(
-        'You need Git Installed to run fvm. Go to https://git-scm.com/downloads',
-      );
-    }
-  }
-
-  /// Gets the Flutter repo if configured on FVM settings
-  static String get _cacheRepo {
-    /// Loads settings file
-    final settings = SettingsService.readSync();
-    if (settings.gitCache) {
-      return ctx.gitCacheDir.path;
-    }
-    return kFlutterRepo;
-  }
-
   /// Clones Flutter SDK from Version Number or Channel
-  /// Returns exists:true if comes from cache or false if its new fetch.
-  static Future<void> cloneVersion(String version) async {
-    await canRun();
-    final versionDirectory = versionCacheDir(version);
-    await versionDirectory.create(recursive: true);
 
-    final isCommit = checkIsGitHash(version);
+  static Future<void> cloneVersion(ValidVersion version) async {
+    final versionDir = versionCacheDir(version.name);
+    await versionDir.create(recursive: true);
+
+    // Check if its git commit
+
+    String? channel;
+
+    if (version.isChannel) {
+      channel = version.name;
+      // If its not a commit hash
+    } else if (version.isRelease) {
+      if (version.forceChannel != null) {
+        // Version name forces channel version
+        channel = version.forceChannel;
+      } else {
+        // Fetches the channel of version by priority
+        final flutterReleases = await fetchFlutterReleases();
+        channel = flutterReleases.getChannelFromVersion(version.name);
+      }
+    }
 
     final args = [
       'clone',
       '--progress',
-      if (!isCommit) ...[
+      if (!version.isGitHash) ...[
         '-c',
         'advice.detachedHead=false',
-        '--single-branch',
         '-b',
-        version,
+        channel ?? version.name,
       ],
       kFlutterRepo,
-      versionDirectory.path
+      versionDir.path
     ];
 
-    final process = await runExecutableArguments(
+    var process = await runExecutableArguments(
       'git',
       args,
       stdout: consoleController.stdoutSink,
@@ -114,29 +61,28 @@ class GitTools {
 
     if (process.exitCode != 0) {
       // Did not cleanly exit clean up directory
-      if (process.exitCode == 128) {
-        if (await versionDirectory.exists()) {
-          await versionDirectory.delete();
-        }
-      }
-
+      await _cleanupVersionDir(versionDir);
       logger.trace(process.stderr.toString());
       throw FvmInternalError('Could not git clone $version');
     }
 
-    if (isCommit) {
+    /// If version has a channel reset
+    if (version.needReset) {
       try {
-        await _resetRepository(versionDirectory, commitHash: version);
-      } on FvmInternalError catch (_) {
-        if (await versionDirectory.exists()) {
-          await versionDirectory.delete(recursive: true);
-        }
-
+        await _resetRepository(versionDir, version: version.version);
+      } on FvmInternalError {
+        await _cleanupVersionDir(versionDir);
         rethrow;
       }
     }
 
     return;
+  }
+
+  static Future<void> _cleanupVersionDir(Directory versionDir) async {
+    if (await versionDir.exists()) {
+      await versionDir.delete(recursive: true);
+    }
   }
 
   /// Lists repository tags
@@ -165,54 +111,42 @@ class GitTools {
   }
 
   /// Returns the [name] of a branch or tag for a [version]
-  static Future<String?> getBranchOrTag(String version) async {
+  static Future<String?> getBranch(String version) async {
     final versionDir = Directory(join(ctx.cacheDir.path, version));
-    return _getCurrentGitBranch(versionDir);
+    final result = await runExecutableArguments(
+      'git',
+      ['rev-parse', '--abbrev-ref', 'HEAD'],
+      workingDirectory: versionDir.path,
+    );
+    return result.stdout.trim() as String;
   }
 
-  static Future<String?> _getCurrentGitBranch(Directory dir) async {
-    try {
-      if (!await dir.exists()) {
-        throw Exception(
-            'Could not get GIT version from ${dir.path} that does not exist');
-      }
-      var result = await runExecutableArguments(
-          'git', ['rev-parse', '--abbrev-ref', 'HEAD'],
-          workingDirectory: dir.path);
-
-      if (result.stdout.trim() == 'HEAD') {
-        result = await runExecutableArguments(
-            'git', ['tag', '--points-at', 'HEAD'],
-            workingDirectory: dir.path);
-      }
-
-      if (result.exitCode != 0) {
-        return null;
-      }
-
-      return result.stdout.trim() as String;
-    } on Exception catch (err) {
-      FvmLogger.error(err.toString());
-      return null;
-    }
+  /// Returns the [name] of a tag [version]
+  static Future<String?> getTag(String version) async {
+    final versionDir = Directory(join(ctx.cacheDir.path, version));
+    final result = await runExecutableArguments(
+      'git',
+      ['describe', '--tags', '--exact-match'],
+      workingDirectory: versionDir.path,
+    );
+    return result.stdout.trim() as String;
   }
 
-  /// Resets the repository at [directory] to [commitHash] using `git reset`
+  /// Resets the repository at [directory] to [version] using `git reset`
   ///
   /// Throws [FvmInternalError] if `git`'s exit code is not 0.
   static Future<void> _resetRepository(
     Directory directory, {
-    required String commitHash,
+    required String version,
   }) async {
     final reset = await runExecutableArguments(
       'git',
       [
-        '-C',
-        directory.path,
         'reset',
         '--hard',
-        commitHash,
+        version,
       ],
+      workingDirectory: directory.path,
       stdout: consoleController.stdoutSink,
       stderr: consoleController.stderrSink,
     );
@@ -221,7 +155,7 @@ class GitTools {
       logger.trace(reset.stderr.toString());
 
       throw FvmInternalError(
-        'Could not git reset $commitHash: ${reset.exitCode}',
+        'Could not git reset $version: ${reset.exitCode}',
       );
     }
   }

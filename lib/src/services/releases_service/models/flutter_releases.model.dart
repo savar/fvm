@@ -43,18 +43,42 @@ class FlutterReleases {
     );
   }
 
+  /// Get channel of release
+  String? getChannelFromVersion(String version) {
+    final release = getReleaseFromVersion(version);
+
+    return release?.channelName;
+  }
+
   /// Retrieves version information
   Release? getReleaseFromVersion(String version) {
     if (checkIsChannel(version)) {
       return channels[version];
     }
 
-    final foundIdx = releases.indexWhere((v) => v.version == version);
-    if (foundIdx < 0) {
-      return null;
-    } else {
-      releases[foundIdx];
+    int findReleaseIdx(Channel channel) {
+      return releases.indexWhere(
+        (v) => v.version == version && v.channel == channel,
+      );
     }
+
+    // Versions can be in multiple versions
+    // Prioritize by order of maturity
+    // TODO: could be optimized and avoid multiple loops
+    final stableIndex = findReleaseIdx(Channel.stable);
+    final betaIndex = findReleaseIdx(Channel.beta);
+    final devIndex = findReleaseIdx(Channel.dev);
+
+    Release? release;
+    if (stableIndex >= 0) {
+      release = releases[stableIndex];
+    } else if (betaIndex >= 0) {
+      release = releases[betaIndex];
+    } else if (devIndex >= 0) {
+      release = releases[devIndex];
+    }
+
+    return release;
   }
 
   /// Checks if version is a release
