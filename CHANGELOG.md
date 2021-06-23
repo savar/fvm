@@ -1,3 +1,11 @@
+## 2.2.2
+
+- Small fix when checking for upgrade
+
+## 2.2.1
+
+- Fix when running flutter command with --no-version-check
+
 ## 2.2.0
 
 - Resolves channel unknown when pulling release version
