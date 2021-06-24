@@ -37,7 +37,8 @@ There are a few reasons this can happen. However it means that the FVM snapshot 
 Please do the following:
 
 1. On Windows make sure your env variables are in the following order as described [here](#environment-variables-order-for-windows-in-path).
-2. Run `dart pub cache repair`
+2. Run `dart pub global deactivate fvm`
+3. Run `dart pub global activate fvm`
 
 ---
 
